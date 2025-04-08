@@ -4,8 +4,8 @@
 
  Storing and annotating the enlightening code (moment) in the process of **Parallel computing**  learning to backtrack the chain of thought in the future.
 
-[Personal notes]([Personal notes](https://www.yuque.com/g/hangtaili/dgelan/rsbgr0610q24gur1/collaborator/join?token=s6HcOiIqymvvLq8k&source=doc_collaborator%23%20%E3%80%8A%E5%B9%B6%E8%A1%8C%E8%AE%A1%E7%AE%97%E3%80%8B)
-)
+[Personal notes](https://www.yuque.com/g/hangtaili/dgelan/rsbgr0610q24gur1/collaborator/join?token=s6HcOiIqymvvLq8k&source=doc_collaborator%23%20%E3%80%8A%E5%B9%B6%E8%A1%8C%E8%AE%A1%E7%AE%97%E3%80%8B)
+
 
 
 
