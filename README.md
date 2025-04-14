@@ -86,16 +86,16 @@ Key point:
 
    ![pic](./pic/pic1.png)
 
-## Code Section 3:
+## Code Section 3 & Section 4
 
 The simple example of the cuDNN usage (excluding the usage of the cuDNN frontend(computation graph))
 
-2d muti-channel convolution computation
-
 ![pic2](./pic/pic2.png)
 
+**2d muti-channel convolution computation  and activation function **
+
 1. **creat** cudnnhandle, xxtype_desciptor
-2. Set the attribute
+2. Set the attribute  （conv = filter(卷积核) + conv(卷积方式)     （activation=激活属性设置）
 
 > **卷积核大小**：指的是卷积核的宽度和高度，通常用 `(H, W)` 来表示，其中 `H` 是高度，`W` 是宽度。常见的卷积核尺寸有 `(3, 3)`、`5, 5`、`7, 7` 等。
 >
@@ -114,6 +114,12 @@ The simple example of the cuDNN usage (excluding the usage of the cuDNN frontend
 >
 > **偏置（Bias）**：卷积操作后，每个输出通道通常会加上一个偏置项。偏置的作用是帮助模型更好地拟合数据。
 
-3. select the machted algorithm
+3. select the machted algorithm （options）
 4. allocate the the workspace and kernel memory size
 5. forward running
+
+
+
+For the result of activation function, it's clear the GPU significantly reduce the computation time.
+
+![](./pic/pic3.png)
