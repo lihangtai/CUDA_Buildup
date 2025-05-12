@@ -88,20 +88,58 @@ Key point:
 
 ## Code Section 3 & Section 4
 
-The simple example of the cuDNN usage (excluding the usage of the cuDNN frontend(computation graph))
+The simple examples of the cuDNN usage (excluding the usage of the cuDNN frontend(computation graph))
 
 ![pic2](./pic/pic2.png)
 
-**2d muti-channel convolution computation  and activation function **
+cuDNN 偏向于 **深度学习张量计算**(DLC)，例如：
 
-1. **creat** cudnnhandle, xxtype_desciptor
-2. Set the attribute  （conv = filter(卷积核) + conv(卷积方式)     （activation=激活属性设置）
+- 卷积（`cudnnConvolutionForward`）
+- 激活（`cudnnActivationForward`）
+- 批归一化（`cudnnBatchNormalizationForwardTraining`）
+- 池化（`cudnnPoolingForward`）
 
-> **卷积核大小**：指的是卷积核的宽度和高度，通常用 `(H, W)` 来表示，其中 `H` 是高度，`W` 是宽度。常见的卷积核尺寸有 `(3, 3)`、`5, 5`、`7, 7` 等。
+
+
+
+
+**2d convolution computation **
+
+> | 卷积类型 | 输入Tensor 维度     | 是否支持       |
+> | -------- | ------------------- | -------------- |
+> | Conv1D   | 3D: [N, C, L]       | ✅              |
+> | Conv2D   | 4D: [N, C, H, W]    | ✅              |
+> | Conv3D   | 5D: [N, C, D, H, W] | ✅              |
+> | Conv4D+  | 6D 或 7D            | ❌ cuDNN 不支持 |
+>
+> 卷积+ 2 = 输入的维度
+
+确定输入输入/输出，卷积核（filter）tensor的大小，卷积配置/卷积算法的选择,分配合适的选择
+
+
+
+
+
+> H_out = ⎣ (H_in + 2·pad_h − dilation_h·(kernelSize−1) − 1) / stride_h ⎦ + 1
+> W_out = ⎣ (W_in + 2·pad_w − dilation_w·(kernelSize−1) − 1) / stride_w ⎦ + 1
+>
+> 5X5X3 与 3X3X3 进行2d卷积 获得的是一个3X3矩阵
+>
+> 输入input：input[batchSize] [inChannels] height] [width] （每个数据为W\*H\*C,总共有batch个，4D）
+>
+> **卷积核大小**：kernel[outChannels] [inChannels] [kernelSize] [kernelSize] （因为矩阵要能卷积必须维度匹配，所以每个卷积核为K\*K\*C 总共有output个，不同的核心对不同的特征进行提取）
 >
 > **输入通道数（In Channels）**：指的是输入数据的通道数，比如彩色图像通常有 3 个通道（RGB），而灰度图像只有 1 个通道。
 >
-> **输出通道数（Out Channels）**：指的是卷积操作后得到的输出数据的通道数。通过增加输出通道数，卷积层可以提取更多的特征。
+> **输出通道数（Out Channels）**：指的是卷积操作后得到的输出数据的通道数。通过增加输出通道数，卷积层可以提取更多的特征。（**决卷积核的数量**）
+>
+> **膨胀卷积（Dilated）**：通过在卷积核元素之间“插入空洞”来**扩大感受野**的一种技术，会影响卷积核实际运算的大小
+>
+> ![](./pic/pic4.png)
+>
+> 虽然我们只存 3×3 = 9 个权重（最初的 x 位置），
+>
+> 但它们在输入上覆盖了 5×5 的“虚拟网格”。
 >
 > **步长（Stride）**：卷积核在输入数据上滑动的步长。步长决定了卷积操作的输出尺寸，如果步长为 1，卷积核会在每个位置都执行一次卷积操作；步长为 2 时，卷积核会跳过每两个位置。
 >
@@ -114,6 +152,12 @@ The simple example of the cuDNN usage (excluding the usage of the cuDNN frontend
 >
 > **偏置（Bias）**：卷积操作后，每个输出通道通常会加上一个偏置项。偏置的作用是帮助模型更好地拟合数据。
 
+
+
+**2d muti-channel convolution computation  and activation function **
+
+1. **creat** cudnnhandle, xxtype_desciptor
+2. Set the attribute  （conv = filter(卷积核) + conv(卷积方式)     （activation=激活属性设置）
 3. select the machted algorithm （options）
 4. allocate the the workspace and kernel memory size
 5. forward running
@@ -123,3 +167,51 @@ The simple example of the cuDNN usage (excluding the usage of the cuDNN frontend
 For the result of activation function, it's clear the GPU significantly reduce the computation time.
 
 ![](./pic/pic3.png)
+
+## Code Section 5
+
+using the block shared memory refine the matrix multiplication, it's explicitly decrease the read times of the global memory.
+
+
+
+keypoint: tiling瓦片化 + shared memory 
+
+每个thread依然还是计算得出结果矩阵中的一位结果，但是结果矩阵被拆分成了多个Csub（每个block对应一个Csub），那么一个Csub中的计算就可以使用block的共享内存 \__shared__减少数据对全局内存的读写次数：
+
+*A* is only read (*B.width / block_size*) times from global memory and *B* is read (*A.height / block_size*) times.
+
+> 传统的MM：*A* is therefore read *B.width* times from global memory and *B* is read *A.height* times.
+>
+> 因为结果是A.height X B.width 所以每一行要乘B.width次， 每一列要乘A.height次
+
+
+
+每一个Csub大小为blocksize X blocksize，那么它们就需要A的 blocksize* A.width  与B.height * blocksize 进行对应的矩阵相乘（其实一个结果元素依然是一行乘一列），但既然我们有block中的线程，我们可以用他们分别读取变量到shared memory中，然后用__syncthreads()同步，最后写入，减少读写的次数
+
+```
+for (int m = 0; m < (A.width / BLOCK_SIZE); ++m) {
+        // Get sub-matrix Asub of A
+        Matrix Asub = GetSubMatrix(A, blockRow, m);
+        // Get sub-matrix Bsub of B
+        Matrix Bsub = GetSubMatrix(B, m, blockCol);
+        // Shared memory used to store Asub and Bsub respectively
+        __shared__ float As[BLOCK_SIZE][BLOCK_SIZE];
+        __shared__ float Bs[BLOCK_SIZE][BLOCK_SIZE];
+        // Load Asub and Bsub from device memory to shared memory
+        // Each thread loads one element of each sub-matrix
+        As[row][col] = GetElement(Asub, row, col);
+        Bs[row][col] = GetElement(Bsub, row, col);
+        // Synchronize to make sure the sub-matrices are loaded
+        // before starting the computation
+        __syncthreads();
+        // Multiply Asub and Bsub together
+        for (int e = 0; e < BLOCK_SIZE; ++e)
+            Cvalue += As[row][e] * Bs[e][col];
+        // Synchronize to make sure that the preceding
+        // computation is done before loading two new
+        // sub-matrices of A and B in the next iteration
+        __syncthreads();
+    }
+```
+
+这个循环中，其实是把A * B 切成了对应的块，每个块对应相乘，最后多个块类加（等价于一行乘一列）
