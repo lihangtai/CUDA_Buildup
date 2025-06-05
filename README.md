@@ -170,17 +170,31 @@ For the result of activation function, it's clear the GPU significantly reduce t
 
 ## Code Section 5
 
-using the block shared memory refine the matrix multiplication, it's explicitly decrease the read times of the global memory.
+Refine the matrix multiplication by using the on-chip memory (decrease the times of reading global memory)
 
 
 
-keypoint: tiling瓦片化 + shared memory 
+on-chip memory: shared memory  and L1 cache
+
+> share memory 编程管理
+>
+> L1（同一个SM可见） + L2 （所有SM可见）硬件自动管理
+
+
+
+**key point: Tiling（矩阵瓦片化运算） + shared memory （共享内存减少读取次数）   **
+
+> 底层原理：一个block 里的thread负责计算一个Csub，那么这个block里所需进行计算的数据不需要重复读写，每个线程读取在shared memory中共同使用，减少对global memory的读取
+
+
 
 每个thread依然还是计算得出结果矩阵中的一位结果，但是结果矩阵被拆分成了多个Csub（每个block对应一个Csub），那么一个Csub中的计算就可以使用block的共享内存 \__shared__减少数据对全局内存的读写次数：
 
 *A* is only read (*B.width / block_size*) times from global memory and *B* is read (*A.height / block_size*) times.
 
 > 传统的MM：*A* is therefore read *B.width* times from global memory and *B* is read *A.height* times.
+>
+> 同一个数据被重复读了很多次
 >
 > 因为结果是A.height X B.width 所以每一行要乘B.width次， 每一列要乘A.height次
 
@@ -215,3 +229,32 @@ for (int m = 0; m < (A.width / BLOCK_SIZE); ++m) {
 ```
 
 这个循环中，其实是把A * B 切成了对应的块，每个块对应相乘，最后多个块类加（等价于一行乘一列）
+
+
+
+
+
+## Code Section 6 
+
+using nvidia libraries to load a trained caffe model and transfer to tensorRT form for inference
+
+> 这个代码最复杂的工作都是调库，但是完整的完成了模型加载，转化为TensorRT，进行推理
+>
+> API stream：create -》 init_model -> load_model -> load_engine ....
+
+
+
+主要需要注意的是：
+
+输入源图片：从disk中载入到了内存中
+
+模型转换：caffe -》 tensorRT
+
+模型推理：讲图片搬运到显存中，可以结合code section 1的代码去理解，这个网络模型是如何在gpu中推理好再送回cpu的
+
+
+
+换一句话说我有了模型结构和参数，但没有gpu进行硬件加速，那一切就没有意义，多层的网络模型DAG 对应着NVidia的多个算子库进行最终的运算
+
+
+
