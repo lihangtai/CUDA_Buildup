@@ -43,6 +43,18 @@ Class Sequential:  using Vector to form a simple model which is composed of seri
 
 
 
+> 虽然整个代码比较初级和简单，但具有学习的意义。
+>
+> 1. 利用了c++的特性
+>
+> 算子和输入和输出都使用class来抽象管理（生命周期），继承，RAII
+>
+> 2. 网络概念到代码实现的借鉴demo例子
+>
+> 每个算子类实现forward函数，并在函数中调用了cuda kernel
+>
+> 3. 一个sequential类把所有算子串起来，实现简单的网络连接
+
 ## Code section 2:
 
 A simple example of how to use API of the Cublas and CublasLt for matrix multiplication.
@@ -238,7 +250,7 @@ for (int m = 0; m < (A.width / BLOCK_SIZE); ++m) {
 
 using nvidia libraries to load a trained caffe model and transfer to tensorRT form for inference
 
-> 这个代码最复杂的工作都是调库，但是完整的完成了模型加载，转化为TensorRT，进行推理
+> 这个代码最复杂的工作都是调库，但是完整的完成了图片加载/模型加载，转化为TensorRT，进行推理
 >
 > API stream：create -》 init_model -> load_model -> load_engine ....
 
@@ -250,11 +262,15 @@ using nvidia libraries to load a trained caffe model and transfer to tensorRT fo
 
 模型转换：caffe -》 tensorRT
 
-模型推理：讲图片搬运到显存中，可以结合code section 1的代码去理解，这个网络模型是如何在gpu中推理好再送回cpu的
+模型推理：将图片搬运到显存中，推理完送回内存
 
 
 
-换一句话说我有了模型结构和参数，但没有gpu进行硬件加速，那一切就没有意义，多层的网络模型DAG 对应着NVidia的多个算子库进行最终的运算
+> 可以回溯到code section1的代码，就可以看出那个代码非常的naive。
+>
+> 首先网络模型不太可能是简单的串形，其次不可能每个算子运算都去开启一个kernel，走一遍内存-显存-运算-回内存的流程，开销太大
+>
+> 换一句话说我有了模型结构和参数，但没有gpu进行硬件加速，那一切就没有意义，多层的网络模型DAG 对应着NVidia的多个算子库进行最终的运算
 
 
 
