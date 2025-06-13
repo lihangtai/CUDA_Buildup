@@ -260,17 +260,74 @@ using nvidia libraries to load a trained caffe model and transfer to tensorRT fo
 
 输入源图片：从disk中载入到了内存中
 
-模型转换：caffe -》 tensorRT
+模型转换：caffe -》 tensorRT （转换后就可以使用推理库加速inference)
 
 模型推理：将图片搬运到显存中，推理完送回内存
 
 
 
+这个代码中调库并没有参数区选择gpu，可以参考库的源码确定如何实现的
+
+1. 图片加载器
+2. caffe模型载入，并使用tensorRT优化、
+3. 进行推理
+
 > 可以回溯到code section1的代码，就可以看出那个代码非常的naive。
 >
 > 首先网络模型不太可能是简单的串形，其次不可能每个算子运算都去开启一个kernel，走一遍内存-显存-运算-回内存的流程，开销太大
 >
-> 换一句话说我有了模型结构和参数，但没有gpu进行硬件加速，那一切就没有意义，多层的网络模型DAG 对应着NVidia的多个算子库进行最终的运算
+> 换一句话说我有了模型结构和参数，但没有gpu进行硬件加速，那一切就没有意义，多层的网络模型DAG 对应着NVidia的多个算子库进行最终的运算,真实运算需要算子融合
+>
+> 
 
 
 
+# Code Section 7
+
+**前提**
+
+Host 和 GPU 都有自己对应的DRAM，虚拟地址空间（MMU和页表）
+
+
+
+内存中锁定一段地址空间（page-locked memory：不会被换到交换区），并把他映射到GPU的地址空间中。GPU 内核可以通过特定device指针访问同一段主机内存。需要注意的是，映射内存本质上仍驻留在主机内存中，GPU 访问时会通过 PCIe 总线发起 DMA 传输；并不会自动在显存中开辟一块镜像空间
+
+> 分配页锁定地址：cudaHostAlloc(&cpu, size, cudaHostAllocMapped)
+>
+> 把这段空间映射到GPU地址空间中：cudaHostGetDevicePointer(&gpu, cpu, 0)
+
+ CUDA 驱动将这块主机内存暴露给 GPU 地址空间。当 GPU 内核使用指向该映射主机内存的指针时，会在访问时触发 PCIe 传输以从主机端内存载入或写回数据。因此，采用映射内存的方法可以省去显存拷贝，但 GPU 访问速率受限于 PCIe 带宽而低于本地显存速度。
+
+
+
+1. 非UVA模式下：各自使用独立的虚拟地址空间
+
+在不支持 UVA 的老系统里，CPU 的虚拟地址从 0x0000_0000_0000 到 0x7FFF_FFFF_FFFF，GPU 的虚拟地址也是它自己的一个 32‑bit 或 40‑bit 空间，两者互不相干
+
+**case： cpu ！gpu：就是等价于把一段内存地址放到gpu的地址空间上方便访问，但这个内存的设备地址和内存地址是不一样的**
+
+​     
+
+2. UVA：统一虚拟地址空间
+
+程序以 64‑bit 模式运行，且 GPU 架构 ≥ Fermi（Compute Capability 2.0），CUDA 运行时就会“自动”使用统一虚拟寻址（UVA）
+
+**地址放到一个虚拟地址空间，但页表里没有映射，也访问不了**
+
+> 特别注意：
+>
+> 1. 统一虚拟地址空间不代表cpu/gpu就可以不分逻辑，随便访问数据，他只是用于专门管理的 **页锁定内存pinned memory** 和**managed memory**
+> 2. UVA（Unified Virtual Addressing）的“统一”指的并不是「把所有内存都挂到 CPU 和 GPU 的页表里」，而是「给 CPU 分配的指针和给 GPU 分配的指针，落在同一个 64‑bit 虚拟地址范围里
+
+
+
+**case： cpu == gpu：和上面就不同了**
+
+
+
+
+![](./pic/pic5.png)
+
+想象一个大型室内停车场，车位编号从 1 到 1,000,000。不同品牌的车（CPU、GPU、映射内存）都在这一个车库里找号，但只有被授权的入口（页表映射）才能把车开进去
+
+> 所以不管是不是UVA：使用普通的 `cudaMalloc()` 在设备上分配内存时，该内存仅位于显存中，是给类似kernel操作的，CPU 必须通过 `cudaMemcpy` 显式拷贝才能访问
